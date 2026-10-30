@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Hono } from 'hono';
 import { loadConfig, type RigConfig } from './config.js';
 import { readNight } from './digest/reader.js';
@@ -11,6 +13,16 @@ export function createApp(config: RigConfig = loadConfig()) {
   const app = new Hono();
 
   app.get('/health', (c) => c.json({ ok: true, lane: lane().id }));
+
+  app.get('/api/digest/:night', (c) => {
+    const { night } = c.req.param();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(night) || !existsSync(join(config.runsDir, `${night}.jsonl`))) {
+      return c.notFound();
+    }
+
+    const rows = readNight(config.runsDir, night).rows.sort((a, b) => a.job.localeCompare(b.job));
+    return c.json(rows);
+  });
 
   app.get('/', (c) =>
     c.html(
