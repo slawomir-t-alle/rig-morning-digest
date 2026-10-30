@@ -1,0 +1,65 @@
+name: Deploy digest preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane_marker:
+        description: Lane marker for the public page; leave blank for cleanup
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/setup@v1
+        with:
+          version: 11.25.0
+          runtime: node@22
+          install: false
+
+      - name: Install project dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Render digest page
+        env:
+          LANE_MARKER: ${{ inputs.lane_marker }}
+        run: |
+          set -euo pipefail
+          PORT=8787 pnpm start >/tmp/rig.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:8787/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          mkdir -p _site
+          curl --fail --silent http://localhost:8787/digest/2026-10-28 --output _site/index.html
+          test -s _site/index.html
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
